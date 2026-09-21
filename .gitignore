@@ -1,0 +1,16 @@
+@"
+.env
+.env.*
+!.env.example
+
+__pycache__/
+*.py[cod]
+
+.deepeval/
+
+storage/chat_history.json
+storage/evaluations/
+storage/vector_db/
+
+.venv/
+"@ | Set-Content .gitignore
