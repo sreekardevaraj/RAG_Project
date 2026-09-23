@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import sys
+import time
 from typing import Any
 
 from mcp.server.fastmcp import FastMCP
@@ -11,75 +13,121 @@ from backend.rag_pipeline import (
 )
 
 
-# --------------------------------------------------
-# MCP Server
-# --------------------------------------------------
+# ==========================================================
+# MCP SERVER
+# ==========================================================
 
 mcp = FastMCP("rag-agent-mcp")
 
 
-# --------------------------------------------------
-# Pipeline Cache
-# --------------------------------------------------
+# ==========================================================
+# PIPELINE CACHE
+# ==========================================================
 
 _pipeline_cache: dict[str, Any] = {}
 
 
-# --------------------------------------------------
-# Tool 1: Initialize RAG Pipeline
-# --------------------------------------------------
+# ==========================================================
+# LOGGING HELPER
+# ==========================================================
+
+def log(message: str) -> None:
+    """
+    Write debug information to stderr.
+
+    IMPORTANT:
+    MCP uses stdout for the protocol, so never use
+    print() to stdout for debugging.
+    """
+
+    print(
+        f"[MCP SERVER] {message}",
+        file=sys.stderr,
+        flush=True,
+    )
+
+
+# ==========================================================
+# TOOL 1: INITIALIZE RAG PIPELINE
+# ==========================================================
 
 @mcp.tool()
 def initialize_pipeline(
-    force_rebuild: bool = False
+    force_rebuild: bool = False,
 ) -> dict[str, Any]:
-    """
-    Initialize the RAG pipeline.
 
-    This builds the existing RAG pipeline and stores
-    it in the MCP server runtime cache.
-    """
+    print(
+        "[MCP] initialize_pipeline() called",
+        file=sys.stderr,
+        flush=True,
+    )
 
-    try:
+    print(
+        "[MCP] Building RAG pipeline...",
+        file=sys.stderr,
+        flush=True,
+    )
 
-        pipeline = build_rag_pipeline(
-            force_rebuild=force_rebuild
-        )
+    pipeline = build_rag_pipeline(
+        force_rebuild=force_rebuild
+    )
 
-        _pipeline_cache["default"] = pipeline
+    print(
+        "[MCP] RAG pipeline built successfully",
+        file=sys.stderr,
+        flush=True,
+    )
 
-        return {
-            "status": "ready",
-            "message": "RAG pipeline initialized successfully",
-        }
+    _pipeline_cache["default"] = pipeline
 
-    except Exception as e:
+    print(
+        "[MCP] Pipeline stored in cache",
+        file=sys.stderr,
+        flush=True,
+    )
 
-        return {
-            "status": "error",
-            "message": str(e),
-        }
+    return {
+        "status": "ready",
+        "message": "RAG pipeline initialized successfully",
+    }
 
 
-# --------------------------------------------------
-# Tool 2: Ask Agent
-# --------------------------------------------------
+# ==========================================================
+# TOOL 2: ASK AGENT
+# ==========================================================
 
 @mcp.tool()
 def ask_agent(
-    question: str
+    question: str,
 ) -> dict[str, Any]:
     """
-    Send a question to the existing agentic RAG pipeline.
+    Send a question to the agentic RAG pipeline.
     """
+
+    start_time = time.perf_counter()
+
+    log(
+        f"Received question: {question}"
+    )
 
     try:
 
-        # Check whether pipeline already exists
+        # --------------------------------------------------
+        # Get cached pipeline
+        # --------------------------------------------------
+
         pipeline = _pipeline_cache.get("default")
 
-        # Build pipeline automatically if necessary
+        # --------------------------------------------------
+        # Safety fallback
+        # --------------------------------------------------
+
         if pipeline is None:
+
+            log(
+                "Pipeline not initialized. "
+                "Building pipeline automatically..."
+            )
 
             pipeline = build_rag_pipeline(
                 force_rebuild=False
@@ -87,44 +135,84 @@ def ask_agent(
 
             _pipeline_cache["default"] = pipeline
 
-        # Execute existing RAG pipeline
+            log(
+                "Pipeline built automatically."
+            )
+
+        # --------------------------------------------------
+        # Execute RAG
+        # --------------------------------------------------
+
+        log("Calling ask_question()...")
+
         response = ask_question(
             pipeline,
-            question
+            question,
         )
+
+        elapsed = time.perf_counter() - start_time
+
+        log(
+            f"Question completed in "
+            f"{elapsed:.2f} seconds."
+        )
+
+        # --------------------------------------------------
+        # Return response
+        # --------------------------------------------------
 
         return {
             "status": "success",
+
             "answer": response.get(
                 "answer",
-                ""
+                "",
             ),
+
             "source": response.get(
                 "source",
-                "Chat"
+                "Chat",
             ),
+
             "details": response.get(
                 "details",
-                []
+                [],
             ),
+
             "followups": response.get(
                 "followups",
-                []
+                [],
+            ),
+
+            "execution_time_seconds": round(
+                elapsed,
+                2,
             ),
         }
 
     except Exception as e:
 
+        elapsed = time.perf_counter() - start_time
+
+        log(
+            f"Agent execution failed "
+            f"after {elapsed:.2f} seconds: {e}"
+        )
+
         return {
             "status": "error",
             "answer": "",
             "message": str(e),
+            "execution_time_seconds": round(
+                elapsed,
+                2,
+            ),
         }
 
 
-# --------------------------------------------------
-# Resource: Pipeline Status
-# --------------------------------------------------
+# ==========================================================
+# RESOURCE 1: PIPELINE STATUS
+# ==========================================================
 
 @mcp.resource("status://pipeline")
 def pipeline_status() -> str:
@@ -132,50 +220,63 @@ def pipeline_status() -> str:
     Return the current RAG pipeline status.
     """
 
-    if "default" in _pipeline_cache:
+    initialized = "default" in _pipeline_cache
 
-        return json.dumps({
-            "status": "ready"
-        })
+    return json.dumps(
+        {
+            "status": (
+                "ready"
+                if initialized
+                else "not_initialized"
+            ),
 
-    return json.dumps({
-        "status": "not_initialized"
-    })
+            "pipeline_cached": initialized,
+        }
+    )
 
 
-# --------------------------------------------------
-# Resource: Server Information
-# --------------------------------------------------
+# ==========================================================
+# RESOURCE 2: SERVER INFORMATION
+# ==========================================================
 
 @mcp.resource("info://server")
 def server_info() -> str:
     """
-    Return basic MCP server information.
+    Return MCP server information.
     """
 
-    return json.dumps({
-        "server": "rag-agent-mcp",
-        "version": "1.0.0",
-        "pipeline": (
-            "initialized"
-            if "default" in _pipeline_cache
-            else "not_initialized"
-        ),
-        "tools": [
-            "initialize_pipeline",
-            "ask_agent",
-        ],
-        "resources": [
-            "status://pipeline",
-            "info://server",
-        ],
-    })
+    initialized = "default" in _pipeline_cache
+
+    return json.dumps(
+        {
+            "server": "rag-agent-mcp",
+            "version": "1.0.0",
+
+            "pipeline": (
+                "initialized"
+                if initialized
+                else "not_initialized"
+            ),
+
+            "tools": [
+                "initialize_pipeline",
+                "ask_agent",
+            ],
+
+            "resources": [
+                "status://pipeline",
+                "info://server",
+            ],
+        }
+    )
 
 
-# --------------------------------------------------
-# Start MCP Server
-# --------------------------------------------------
+# ==========================================================
+# START MCP SERVER
+# ==========================================================
 
 if __name__ == "__main__":
+
+    log("Starting MCP server...")
 
     mcp.run()
