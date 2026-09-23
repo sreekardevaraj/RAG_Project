@@ -48,22 +48,41 @@ class RAGMCPClient:
     # Initialize Pipeline
     # --------------------------------------------------
 
+
     async def initialize_pipeline(
         self,
-        force_rebuild: bool = False
+        force_rebuild: bool = False,
     ):
 
         if self.session is None:
             await self.connect()
 
-        result = await self.session.call_tool(
-            "initialize_pipeline",
-            {
-                "force_rebuild": force_rebuild
-            }
-        )
+        print("\nCalling initialize_pipeline()...")
 
-        return self._extract_result(result)
+        try:
+
+            result = await asyncio.wait_for(
+                self.session.call_tool(
+                    "initialize_pipeline",
+                    {
+                        "force_rebuild": force_rebuild
+                    },
+                ),
+                timeout=60,
+            )
+
+            print("initialize_pipeline() returned.")
+
+            return self._extract_result(result)
+
+        except asyncio.TimeoutError:
+
+            print(
+                "ERROR: MCP initialize_pipeline() "
+                "timed out after 60 seconds."
+            )
+
+            return None
 
     # --------------------------------------------------
     # Ask Agent
