@@ -22,7 +22,7 @@ RAW_PDF_DIR = os.path.join(BASE_DIR, "data", "raw")
 VECTOR_DB_DIR = os.path.join(BASE_DIR, "storage", "vector_db")
 
 # Router
-RELEVANCE_THRESHOLD = float(os.getenv("RELEVANCE_THRESHOLD", "0.45"))
+RELEVANCE_THRESHOLD = float(os.getenv("RELEVANCE_THRESHOLD", "0.50"))
 
 # Web Search
 WEB_SEARCH_MAX_RESULTS = int(os.getenv("WEB_SEARCH_MAX_RESULTS", "5"))
